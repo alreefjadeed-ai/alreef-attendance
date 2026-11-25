@@ -799,6 +799,14 @@
       </div>
 
       <div class="cardx">
+        <div class="section-head">
+          <h5>الأجهزة المعتمدة للتحكّم (بحد أقصى 3 أجهزة)</h5>
+          <span class="sub" id="devicesCounter">0 / 3</span>
+        </div>
+        <div id="approvedDevicesList" class="small text-muted">جاري تحميل قائمة الأجهزة...</div>
+      </div>
+
+      <div class="cardx">
         <h5 class="text-danger">إدارة البيانات والتهيئة</h5>
         <p class="sub">حذف البيانات يمسح سجلات الطلاب والحضور. يُنصح بأخذ نسخة احتياطية أولاً.</p>
         <button class="btn btn-outline-danger" onclick="clearData()"><i class="fa-solid fa-trash"></i> مسح جميع البيانات نهائياً</button>
@@ -829,7 +837,7 @@
 
     function requireControl() {
       if (!canControlDevice()) {
-        alert('هذا الجهاز في وضع المشاهدة فقط. التعديل متاح من الهواتف المعتمدة الثلاثة فقط.');
+        alert('هذا الجهاز في وضع المشاهدة فقط. التعديل متاح من الأجهزة المعتمدة عبر رابط التحكّم.');
         return false;
       }
       return true;
@@ -898,6 +906,7 @@
 
     function refreshCurrentView() {
       applyRoleVisibility();
+      if (typeof window.renderDevicesAdmin === 'function') window.renderDevicesAdmin();
       const activeSec = [...document.querySelectorAll('main section')].find(s => !s.classList.contains('hidden'));
       const name = activeSec ? activeSec.id : 'dashboard';
       if (name === 'dashboard') dashboard();
@@ -943,6 +952,7 @@
       if (name === 'settings') {
         $('schoolNameInput').value = schoolName;
         $('timeLate').value = timeLateSetting;
+        if (typeof window.renderDevicesAdmin === 'function') window.renderDevicesAdmin();
       }
       applyRoleVisibility();
     }
@@ -1688,17 +1698,16 @@
       getFirestore, collection, doc, setDoc, deleteDoc, writeBatch, onSnapshot
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
-    // استبدلي هذه القيم ببيانات مشروعكِ alreef-attendance من إعدادات Firebase
     const firebaseConfig = {
-      apiKey: "YOUR_API_KEY",
+      apiKey: "AIzaSyDecrVImozMeXnPVXw-fdcOwfPis1EfTfI",
       authDomain: "alreef-attendance.firebaseapp.com",
       projectId: "alreef-attendance",
-      storageBucket: "alreef-attendance.appspot.com",
-      messagingSenderId: "YOUR_SENDER_ID",
-      appId: "YOUR_APP_ID"
+      storageBucket: "alreef-attendance.firebasestorage.app",
+      messagingSenderId: "485197076593",
+      appId: "1:485197076593:web:509717464e4406f9ece3d0",
+      measurementId: "G-3X89NPZR18"
     };
 
-    // مفتاح التفعيل للهواتف الثلاثة المعتمدة (مثال: ?admin=REEF_CTRL_2026)
     const ADMIN_ACCESS_KEY = "REEF_CTRL_2026";
     const MAX_CONTROL_DEVICES = 3;
 
@@ -1716,11 +1725,16 @@
       localStorage.setItem("alreef_device_id", deviceId);
     }
 
-    let canControl = localStorage.getItem("alreef_can_control") === "true";
-    let approvedDevices = [];
-
     const urlParams = new URLSearchParams(window.location.search);
+    const hasAdminParam = urlParams.has("admin");
     const keyFromUrl = urlParams.get("admin");
+
+    let canControl = hasAdminParam
+      ? (keyFromUrl === ADMIN_ACCESS_KEY && localStorage.getItem("alreef_can_control") === "true")
+      : false;
+    localStorage.setItem("alreef_can_control", String(canControl));
+
+    let approvedDevices = [];
 
     function renderRoleBadge() {
       let badge = document.getElementById("modeBadge");
@@ -1738,8 +1752,69 @@
       }
     }
 
+    async function removeApprovedDevice(targetDeviceId) {
+      if (!canControl) return;
+      if (!confirm(`هل تريدين إزالة الجهاز (${targetDeviceId}) من قائمة التحكّم؟`)) return;
+      await deleteDoc(doc(devicesCol, targetDeviceId));
+      if (targetDeviceId === deviceId) {
+        canControl = false;
+        localStorage.setItem("alreef_can_control", "false");
+      }
+      renderRoleBadge();
+      if (typeof refreshCurrentView === "function") refreshCurrentView();
+    }
+
+    window.renderDevicesAdmin = function() {
+      const listEl = document.getElementById("approvedDevicesList");
+      const counterEl = document.getElementById("devicesCounter");
+      if (counterEl) counterEl.textContent = `${approvedDevices.length} / ${MAX_CONTROL_DEVICES}`;
+      if (!listEl) return;
+
+      if (!approvedDevices.length) {
+        listEl.innerHTML = '<div class="text-muted">لا توجد أجهزة مسجّلة للتحكّم حالياً.</div>';
+        return;
+      }
+
+      listEl.innerHTML = `
+        <div class="table-responsive">
+          <table class="table table-sm table-bordered align-middle mb-0">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>معرّف الجهاز</th>
+                <th>تاريخ التفعيل</th>
+                <th>إجراء</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${approvedDevices.map((d, idx) => `
+                <tr>
+                  <td>${idx + 1}</td>
+                  <td><code>${esc(d.id)}</code> ${d.id === deviceId ? '<span class="badge text-bg-primary">هذا الجهاز</span>' : ''}</td>
+                  <td>${esc(d.activatedAt ? new Date(d.activatedAt).toLocaleString('ar-LY') : '-')}</td>
+                  <td>
+                    <button class="btn btn-sm btn-outline-danger" onclick="removeApprovedDevice('${esc(d.id)}')">
+                      <i class="fa-solid fa-trash"></i> إزالة
+                    </button>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      `;
+    };
+
+    window.removeApprovedDevice = removeApprovedDevice;
+
     async function tryActivateControl() {
-      if (!keyFromUrl || keyFromUrl !== ADMIN_ACCESS_KEY) return;
+      if (!hasAdminParam) return;
+      if (keyFromUrl !== ADMIN_ACCESS_KEY) {
+        canControl = false;
+        localStorage.setItem("alreef_can_control", "false");
+        renderRoleBadge();
+        return;
+      }
 
       const alreadyApproved = approvedDevices.some(d => d.id === deviceId);
       if (alreadyApproved) {
@@ -1751,7 +1826,10 @@
       }
 
       if (approvedDevices.length >= MAX_CONTROL_DEVICES) {
-        alert(`تم بلوغ الحد الأقصى لهواتف التحكّم (${MAX_CONTROL_DEVICES} هواتف).`);
+        canControl = false;
+        localStorage.setItem("alreef_can_control", "false");
+        renderRoleBadge();
+        alert(`تم بلوغ الحد الأقصى لأجهزة التحكّم (${MAX_CONTROL_DEVICES} أجهزة). يمكنكِ إزالة جهاز من الإعدادات لإتاحة مقعد جديد.`);
         return;
       }
 
@@ -1769,7 +1847,7 @@
     onSnapshot(devicesCol, snap => {
       approvedDevices = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       const isListed = approvedDevices.some(d => d.id === deviceId);
-      canControl = isListed && (localStorage.getItem("alreef_can_control") === "true");
+      canControl = hasAdminParam && (keyFromUrl === ADMIN_ACCESS_KEY) && isListed;
       localStorage.setItem("alreef_can_control", String(canControl));
       tryActivateControl();
       renderRoleBadge();
@@ -1860,6 +1938,5 @@
     window.isControlDevice = () => canControl;
     renderRoleBadge();
   </script>
-  
 </body>
 </html>
