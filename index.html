@@ -1060,14 +1060,33 @@
 
     async function deleteStudent(id) {
       if (!requireControl()) return;
-      if (!confirm('هل تريدين حذف هذا الطالب؟ ستبقى سجلاته السابقة محفوظة للتعديد الحسابي.')) return;
+      const st = students.find(s => s.id === id);
+      const stName = st?.name || id;
+      if (!confirm(`هل تريدين حذف الطالب (${stName}) من قائمة الطلاب؟`)) return;
+
+      const deleteWithRecords = confirm('هل تريدين أيضاً حذف جميع سجلات الحضور والغياب والتأخير الخاصة بهذا الطالب نهائياً؟ (اضغطي "إلغاء" للإبقاء على سجلاته السابقة)');
+
       students = students.filter(s => s.id !== id);
+      let removedRecIds = [];
+      if (deleteWithRecords) {
+        removedRecIds = records
+          .filter(r => r.studentId === id)
+          .map(r => r.id || `${r.date}_${r.studentId}`);
+        records = records.filter(r => r.studentId !== id);
+      }
+
       saveLocalCache();
       if (typeof window.cloudDeleteStudent === 'function') {
         await window.cloudDeleteStudent(id);
       }
+      if (deleteWithRecords && removedRecIds.length && typeof window.cloudDeleteRecordsBatch === 'function') {
+        await window.cloudDeleteRecordsBatch(removedRecIds);
+      }
+
       renderStudents();
       dashboard();
+      refreshCurrentView();
+      alert(deleteWithRecords ? 'تم حذف الطالب وجميع سجلاته بنجاح.' : 'تم حذف الطالب مع الإبقاء على سجلاته السابقة.');
     }
 
     function fillManualStudents() {
@@ -1247,7 +1266,7 @@
                 <th>الوقت</th>
                 <th>الحالة</th>
                 <th>إشعار ولي الأمر</th>
-                ${showEditCol ? '<th>تعديل الحالة</th>' : ''}
+                ${showEditCol ? '<th>تعديل / حذف</th>' : ''}
               </tr>
             </thead>
             <tbody>
@@ -1266,11 +1285,16 @@
                   </td>
                   ${showEditCol ? `
                     <td>
-                      <select class="form-select form-select-sm" style="min-width:105px" onchange="changeStatus('${r.studentId}','${r.date}',this.value)">
-                        <option ${r.status === 'حاضر' ? 'selected' : ''}>حاضر</option>
-                        <option ${r.status === 'غائب' ? 'selected' : ''}>غائب</option>
-                        <option ${r.status === 'متأخر' ? 'selected' : ''}>متأخر</option>
-                      </select>
+                      <div class="d-flex gap-1 align-items-center">
+                        <select class="form-select form-select-sm" style="min-width:100px" onchange="changeStatus('${r.studentId}','${r.date}',this.value)">
+                          <option ${r.status === 'حاضر' ? 'selected' : ''}>حاضر</option>
+                          <option ${r.status === 'غائب' ? 'selected' : ''}>غائب</option>
+                          <option ${r.status === 'متأخر' ? 'selected' : ''}>متأخر</option>
+                        </select>
+                        <button class="btn btn-sm btn-outline-danger" title="حذف السجل" onclick="deleteRecordEntry('${r.studentId}','${r.date}','${esc(r.name)}')">
+                          <i class="fa-solid fa-trash"></i>
+                        </button>
+                      </div>
                     </td>
                   ` : ''}
                 </tr>
@@ -1279,6 +1303,21 @@
           </table>
         </div>
       `;
+    }
+
+    async function deleteRecordEntry(studentId, date, studentName = '') {
+      if (!requireControl()) return;
+      const target = records.find(x => x.studentId === studentId && x.date === date);
+      if (!target) return;
+      const recId = target.id || `${date}_${studentId}`;
+      if (!confirm(`هل تريدين حذف سجل (${studentName || studentId}) بتاريخ ${date} نهائياً؟`)) return;
+
+      records = records.filter(x => !(x.studentId === studentId && x.date === date));
+      saveLocalCache();
+      if (typeof window.cloudDeleteRecord === 'function') {
+        await window.cloudDeleteRecord(recId);
+      }
+      refreshCurrentView();
     }
 
     function renderCategory(status) {
@@ -1896,6 +1935,18 @@
       const recId = recordObj.id || `${recordObj.date}_${recordObj.studentId}`;
       recordObj.id = recId;
       await setDoc(doc(recordsCol, recId), recordObj);
+    };
+
+    window.cloudDeleteRecord = async function(recId) {
+      if (!canControl || !recId) return;
+      await deleteDoc(doc(recordsCol, recId));
+    };
+
+    window.cloudDeleteRecordsBatch = async function(recIds) {
+      if (!canControl || !Array.isArray(recIds) || !recIds.length) return;
+      const batch = writeBatch(db);
+      recIds.forEach(id => batch.delete(doc(recordsCol, id)));
+      await batch.commit();
     };
 
     window.cloudSaveRecordsBatch = async function(list) {
