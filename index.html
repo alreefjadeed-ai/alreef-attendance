@@ -269,7 +269,6 @@
       }
     }
 
-    /* بطاقات الطلاب للطباعة */
     .cards-grid {
       display: grid;
       grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
@@ -465,7 +464,7 @@
     <button class="nav-btn" onclick="page('allrecords',this)"><i class="fa-solid fa-list"></i><span>السجل الشامل</span></button>
     <button class="nav-btn" onclick="page('monthly',this)"><i class="fa-solid fa-calendar-days"></i><span>التقارير الشهرية</span></button>
     <button class="nav-btn" onclick="page('cards',this)"><i class="fa-solid fa-id-card"></i><span>بطاقات QR</span></button>
-    <button class="nav-btn" onclick="page('settings',this)"><i class="fa-solid fa-gear"></i><span>الإعدادات</span></button>
+    <button class="nav-btn ctrl-only" onclick="page('settings',this)"><i class="fa-solid fa-gear"></i><span>الإعدادات</span></button>
     <div class="small text-center mt-4" style="color:#b9d7ee;font-size:11px">النسخة المطورّة 2.1</div>
   </aside>
 
@@ -477,7 +476,7 @@
       </div>
       <div class="toolbar no-print">
         <button class="btn btn-outline-primary btn-sm" onclick="backupData()"><i class="fa-solid fa-download"></i> نسخة احتياطية</button>
-        <button class="btn btn-outline-secondary btn-sm" onclick="document.getElementById('restoreFile').click()"><i class="fa-solid fa-upload"></i> استعادة</button>
+        <button class="btn btn-outline-secondary btn-sm ctrl-only" onclick="document.getElementById('restoreFile').click()"><i class="fa-solid fa-upload"></i> استعادة</button>
         <input id="restoreFile" type="file" accept="application/json" hidden onchange="restoreData(event)">
       </div>
     </header>
@@ -505,7 +504,7 @@
         </div>
         <div id="dashSummary" class="empty">لا توجد سجلات لهذا اليوم حتى الآن.</div>
         <div class="toolbar mt-3">
-          <button class="btn btn-primary btn-sm" onclick="page('scan')"><i class="fa-solid fa-qrcode"></i> بدء تسجيل الحضور الآن</button>
+          <button class="btn btn-primary btn-sm ctrl-only" onclick="page('scan')"><i class="fa-solid fa-qrcode"></i> بدء تسجيل الحضور الآن</button>
           <button class="btn btn-outline-primary btn-sm" onclick="page('monthly')">عرض التقارير الشهرية</button>
         </div>
       </div>
@@ -513,7 +512,7 @@
 
     <!-- إدارة الطلاب -->
     <section id="students" class="hidden">
-      <div class="cardx">
+      <div class="cardx ctrl-only">
         <div class="section-head">
           <h5 id="studentFormTitle">إضافة طالب جديد</h5>
           <button class="btn btn-outline-secondary btn-sm" onclick="resetStudentForm()">تفريغ الحقول</button>
@@ -583,7 +582,7 @@
                 <th>رقم المقعد</th>
                 <th>هاتف ولي الأمر</th>
                 <th>رمز QR</th>
-                <th>إجراءات</th>
+                <th class="ctrl-only">إجراءات</th>
               </tr>
             </thead>
             <tbody id="studentsBody"></tbody>
@@ -737,9 +736,9 @@
             <button class="btn btn-primary w-100" onclick="generateMonthlyReport()"><i class="fa-solid fa-chart-pie"></i> عرض التقرير</button>
           </div>
         </div>
-        <hr>
-        <h6>اعتماد غياب نهاية الدوام</h6>
-        <div class="row g-2 align-items-end">
+        <hr class="ctrl-only">
+        <h6 class="ctrl-only">اعتماد غياب نهاية الدوام</h6>
+        <div class="row g-2 align-items-end ctrl-only">
           <div class="col-md-4">
             <label class="form-label">تاريخ اليوم الدراسي</label>
             <input type="date" id="closeDate" class="form-control">
@@ -777,7 +776,7 @@
     </section>
 
     <!-- الإعدادات -->
-    <section id="settings" class="hidden">
+    <section id="settings" class="hidden ctrl-only">
       <div class="cardx">
         <h5 class="mb-3">إعدادات المدرسة والتوقيت</h5>
         <div class="row g-3">
@@ -801,7 +800,7 @@
 
       <div class="cardx">
         <h5 class="text-danger">إدارة البيانات والتهيئة</h5>
-        <p class="sub">حذف البيانات يمسح سجلات الطلاب والحضور المسجلة على هذا الجهاز. يُنصح بأخذ نسخة احتياطية أولاً.</p>
+        <p class="sub">حذف البيانات يمسح سجلات الطلاب والحضور. يُنصح بأخذ نسخة احتياطية أولاً.</p>
         <button class="btn btn-outline-danger" onclick="clearData()"><i class="fa-solid fa-trash"></i> مسح جميع البيانات نهائياً</button>
       </div>
     </section>
@@ -823,6 +822,18 @@
     let scanner = null;
     let lastScannedId = null;
     let lastScannedTime = 0;
+
+    function canControlDevice() {
+      return typeof window.isControlDevice === 'function' ? window.isControlDevice() : false;
+    }
+
+    function requireControl() {
+      if (!canControlDevice()) {
+        alert('هذا الجهاز في وضع المشاهدة فقط. التعديل متاح من الهواتف المعتمدة الثلاثة فقط.');
+        return false;
+      }
+      return true;
+    }
 
     function playSound(type) {
       try {
@@ -850,7 +861,7 @@
       } catch (e) {}
     }
 
-    function saveData() {
+    function saveLocalCache() {
       localStorage.setItem('school_students', JSON.stringify(students));
       localStorage.setItem('school_records', JSON.stringify(records));
       localStorage.setItem('school_name', schoolName);
@@ -875,7 +886,36 @@
       return `<span class="badge-status ${statusClass(s)}">${esc(s)}</span>`;
     }
 
+    function applyRoleVisibility() {
+      const ctrl = canControlDevice();
+      document.querySelectorAll('.ctrl-only').forEach(el => {
+        el.classList.toggle('hidden', !ctrl);
+      });
+      if (!ctrl && !$('settings').classList.contains('hidden')) {
+        page('dashboard');
+      }
+    }
+
+    function refreshCurrentView() {
+      applyRoleVisibility();
+      const activeSec = [...document.querySelectorAll('main section')].find(s => !s.classList.contains('hidden'));
+      const name = activeSec ? activeSec.id : 'dashboard';
+      if (name === 'dashboard') dashboard();
+      if (name === 'students') renderStudents();
+      if (name === 'scan') fillManualStudents();
+      if (name === 'present') renderCategory('حاضر');
+      if (name === 'absent') renderCategory('غائب');
+      if (name === 'late') renderCategory('متأخر');
+      if (name === 'allrecords') renderAll();
+      if (name === 'monthly') {
+        fillReportGrades();
+        generateMonthlyReport();
+      }
+      if (name === 'cards') renderCards();
+    }
+
     function page(name, btn) {
+      if (name === 'settings' && !requireControl()) return;
       document.querySelectorAll('main section').forEach(x => x.classList.add('hidden'));
       $(name).classList.remove('hidden');
       document.querySelectorAll('.nav-btn').forEach(x => x.classList.remove('active'));
@@ -904,6 +944,7 @@
         $('schoolNameInput').value = schoolName;
         $('timeLate').value = timeLateSetting;
       }
+      applyRoleVisibility();
     }
 
     function dashboard() {
@@ -933,8 +974,9 @@
       $('studentFormTitle').textContent = 'إضافة طالب جديد';
     }
 
-    function saveStudent(e) {
+    async function saveStudent(e) {
       e.preventDefault();
+      if (!requireControl()) return;
       let id = $('editId').value;
       let data = {
         id: id || uid(),
@@ -950,15 +992,20 @@
       } else {
         students.push(data);
       }
-      saveData();
+      saveLocalCache();
+      if (typeof window.cloudSaveStudent === 'function') {
+        await window.cloudSaveStudent(data);
+      }
       resetStudentForm();
       renderStudents();
+      dashboard();
       alert('تم حفظ بيانات الطالب بنجاح.');
     }
 
     function renderStudents() {
       let q = ($('studentSearch')?.value || '').trim().toLowerCase();
       let arr = students.filter(s => (s.name + ' ' + s.className + ' ' + s.section + ' ' + (s.phone || '')).toLowerCase().includes(q));
+      const ctrl = canControlDevice();
       $('studentsBody').innerHTML = arr.map((s, i) => `
         <tr>
           <td>${i + 1}</td>
@@ -968,13 +1015,14 @@
           <td>${esc(s.seat || '-')}</td>
           <td>${s.phone ? `<a href="https://wa.me/${s.phone.replace(/[^0-9]/g, '')}" target="_blank" class="text-decoration-none"><i class="fa-brands fa-whatsapp text-success"></i> ${esc(s.phone)}</a>` : '-'}</td>
           <td><code>${esc(s.id)}</code></td>
-          <td>
+          <td class="ctrl-only ${ctrl ? '' : 'hidden'}">
             <button class="btn btn-sm btn-outline-primary" onclick="editStudent('${s.id}')"><i class="fa fa-edit"></i></button>
             <button class="btn btn-sm btn-outline-danger" onclick="deleteStudent('${s.id}')"><i class="fa fa-trash"></i></button>
           </td>
         </tr>
       `).join('');
       $('studentsEmpty').classList.toggle('hidden', arr.length > 0);
+      applyRoleVisibility();
     }
 
     function matchClassOption(val) {
@@ -987,6 +1035,7 @@
     }
 
     function editStudent(id) {
+      if (!requireControl()) return;
       let s = students.find(x => x.id === id);
       if (!s) return;
       $('editId').value = s.id;
@@ -999,11 +1048,16 @@
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    function deleteStudent(id) {
+    async function deleteStudent(id) {
+      if (!requireControl()) return;
       if (!confirm('هل تريدين حذف هذا الطالب؟ ستبقى سجلاته السابقة محفوظة للتعديد الحسابي.')) return;
       students = students.filter(s => s.id !== id);
-      saveData();
+      saveLocalCache();
+      if (typeof window.cloudDeleteStudent === 'function') {
+        await window.cloudDeleteStudent(id);
+      }
       renderStudents();
+      dashboard();
     }
 
     function fillManualStudents() {
@@ -1023,7 +1077,8 @@
       return currentTime > timeLateSetting ? 'متأخر' : 'حاضر';
     }
 
-    function registerStudent(id, statusOverride = null) {
+    async function registerStudent(id, statusOverride = null) {
+      if (!requireControl()) return;
       let s = students.find(x => x.id === id);
       if (!s) {
         playSound('danger');
@@ -1035,6 +1090,7 @@
       let d = today();
       let currentTimeStr = new Date().toLocaleTimeString('ar-LY', { hour: '2-digit', minute: '2-digit' });
       let old = records.find(x => x.studentId === id && x.date === d);
+      let targetRecord = null;
 
       if (old) {
         if (old.status === targetStatus) {
@@ -1044,11 +1100,14 @@
           return;
         }
         if (!confirm(`الطالب ${s.name} مسجل اليوم بحالة «${old.status}». هل تريدين تعديل الحالة إلى «${targetStatus}»؟`)) return;
+        old.id = old.id || `${d}_${s.id}`;
         old.status = targetStatus;
         old.time = currentTimeStr;
         old.updatedAt = new Date().toISOString();
+        targetRecord = old;
       } else {
-        records.push({
+        targetRecord = {
+          id: `${d}_${s.id}`,
           studentId: s.id,
           name: s.name,
           className: s.className,
@@ -1058,10 +1117,14 @@
           date: d,
           time: currentTimeStr,
           status: targetStatus
-        });
+        };
+        records.push(targetRecord);
       }
 
-      saveData();
+      saveLocalCache();
+      if (typeof window.cloudSaveRecord === 'function') {
+        await window.cloudSaveRecord(targetRecord);
+      }
       playSound('success');
       showScan(`تم تسجيل: <b>${esc(s.name)}</b> — <span class="badge-status ${statusClass(targetStatus)}">${targetStatus}</span>`, 'success');
       showPopCard(s, targetStatus, currentTimeStr);
@@ -1083,6 +1146,7 @@
     }
 
     function manualRegister() {
+      if (!requireControl()) return;
       let v = $('manualQR').value.trim();
       if (!v) return;
       let s = students.find(x => x.id === v) || students.find(x => x.id.toLowerCase() === v.toLowerCase());
@@ -1097,12 +1161,14 @@
     }
 
     function registerSelectedStudent() {
+      if (!requireControl()) return;
       let id = $('manualStudent').value;
       if (!id) return alert('اختاري الطالب أولاً');
       registerStudent(id);
     }
 
     async function startScanner() {
+      if (!requireControl()) return;
       if (typeof Html5Qrcode === 'undefined') {
         showScan('تعذر تحميل قارئ الكاميرا. تحققي من الاتصال بالإنترنت.', 'danger');
         return;
@@ -1156,6 +1222,7 @@
 
     function tableHTML(arr, withActions = false) {
       if (!arr.length) return '<div class="empty">لا توجد سجلات مطابقة.</div>';
+      const showEditCol = withActions && canControlDevice();
       return `
         <div class="table-responsive">
           <table class="table table-hover">
@@ -1170,7 +1237,7 @@
                 <th>الوقت</th>
                 <th>الحالة</th>
                 <th>إشعار ولي الأمر</th>
-                ${withActions ? '<th>تعديل الحالة</th>' : ''}
+                ${showEditCol ? '<th>تعديل الحالة</th>' : ''}
               </tr>
             </thead>
             <tbody>
@@ -1187,7 +1254,7 @@
                   <td>
                     ${r.phone ? `<button class="btn btn-sm btn-outline-success" onclick="sendWhatsAppNotice('${r.phone}','${esc(r.name)}','${r.status}','${r.date}')"><i class="fa-brands fa-whatsapp"></i> إشعار</button>` : '-'}
                   </td>
-                  ${withActions ? `
+                  ${showEditCol ? `
                     <td>
                       <select class="form-select form-select-sm" style="min-width:105px" onchange="changeStatus('${r.studentId}','${r.date}',this.value)">
                         <option ${r.status === 'حاضر' ? 'selected' : ''}>حاضر</option>
@@ -1212,16 +1279,24 @@
       $(containerId).innerHTML = tableHTML(arr, true);
     }
 
-    function changeStatus(id, date, status) {
+    async function changeStatus(id, date, status) {
+      if (!requireControl()) {
+        renderAll();
+        return;
+      }
       let r = records.find(x => x.studentId === id && x.date === date);
       if (!r) return;
       if (!confirm(`تأكيد تغيير حالة الطالب إلى (${status})؟`)) {
         renderAll();
         return;
       }
+      r.id = r.id || `${date}_${id}`;
       r.status = status;
       r.time = new Date().toLocaleTimeString('ar-LY', { hour: '2-digit', minute: '2-digit' });
-      saveData();
+      saveLocalCache();
+      if (typeof window.cloudSaveRecord === 'function') {
+        await window.cloudSaveRecord(r);
+      }
       renderAll();
       renderCategory(status);
       dashboard();
@@ -1233,7 +1308,6 @@
       $('allTable').innerHTML = tableHTML(arr, true);
     }
 
-    // تصدير منسق بالكامل إلى Excel (.xlsx) باتجاه من اليمين إلى اليسار
     function downloadExcelSheet(rows, sheetName, fileName) {
       if (!rows || !rows.length) {
         alert('لا توجد بيانات لتصديرها.');
@@ -1246,11 +1320,8 @@
 
       const wb = XLSX.utils.book_new();
       const ws = XLSX.utils.aoa_to_sheet(rows);
-
-      // تفعيل اتجاه الورقة من اليمين إلى اليسار (RTL)
       ws['!views'] = [{ rightToLeft: true }];
 
-      // حساب عرض مناسب لكل عمود بالاعتماد على أطول نص عربي
       const colWidths = rows[0].map((_, colIdx) => {
         let maxLen = 10;
         rows.forEach(row => {
@@ -1463,7 +1534,8 @@
       setTimeout(() => document.body.classList.remove('print-monthly'), 500);
     }
 
-    function approveDailyAbsences() {
+    async function approveDailyAbsences() {
+      if (!requireControl()) return;
       let d = $('closeDate').value;
       if (!d) return alert('يرجى اختيار التاريخ أولاً.');
       if (d > today()) return alert('لا يمكن اعتماد الغياب لتاريخ في المستقبل.');
@@ -1473,7 +1545,8 @@
 
       if (!confirm(`سيتم إدراج عدد (${missing.length}) طالب كـ "غائب" بتاريخ ${d}. هل تريدين المتابعة؟`)) return;
 
-      missing.forEach(s => records.push({
+      const added = missing.map(s => ({
+        id: `${d}_${s.id}`,
         studentId: s.id,
         name: s.name,
         className: s.className,
@@ -1485,7 +1558,11 @@
         status: 'غائب'
       }));
 
-      saveData();
+      records.push(...added);
+      saveLocalCache();
+      if (typeof window.cloudSaveRecordsBatch === 'function') {
+        await window.cloudSaveRecordsBatch(added);
+      }
       alert(`تم بنجاح اعتماد غياب ${missing.length} طالب.`);
       generateMonthlyReport();
       dashboard();
@@ -1525,19 +1602,28 @@
       }
     }
 
-    function saveSettings() {
+    async function saveSettings() {
+      if (!requireControl()) return;
       schoolName = $('schoolNameInput').value.trim() || 'مدرسة الريف الجديد للتعليم الخاص';
       timeLateSetting = $('timeLate').value || '08:15';
-      saveData();
+      saveLocalCache();
+      if (typeof window.cloudSaveMeta === 'function') {
+        await window.cloudSaveMeta({ schoolName, timeLate: timeLateSetting });
+      }
       $('schoolHeading').textContent = schoolName;
+      dashboard();
       alert('تم حفظ الإعدادات بنجاح.');
     }
 
-    function clearData() {
-      if (!confirm('تأكيد مسح جميع الطلاب والسجلات نهائياً من هذا الجهاز؟')) return;
+    async function clearData() {
+      if (!requireControl()) return;
+      if (!confirm('تأكيد مسح جميع الطلاب والسجلات نهائياً؟')) return;
       students = [];
       records = [];
-      saveData();
+      saveLocalCache();
+      if (typeof window.cloudClearAll === 'function') {
+        await window.cloudClearAll();
+      }
       renderStudents();
       dashboard();
       alert('تم مسح البيانات بنجاح.');
@@ -1555,10 +1641,14 @@
     }
 
     function restoreData(e) {
+      if (!requireControl()) {
+        e.target.value = '';
+        return;
+      }
       let f = e.target.files[0];
       if (!f) return;
       let rd = new FileReader();
-      rd.onload = () => {
+      rd.onload = async () => {
         try {
           let d = JSON.parse(rd.result);
           if (!Array.isArray(d.students) || !Array.isArray(d.records)) throw Error();
@@ -1567,7 +1657,10 @@
           records = d.records;
           schoolName = d.schoolName || schoolName;
           timeLateSetting = d.timeLateSetting || timeLateSetting;
-          saveData();
+          saveLocalCache();
+          if (typeof window.cloudRestoreAll === 'function') {
+            await window.cloudRestoreAll({ schoolName, timeLate: timeLateSetting, students, records });
+          }
           dashboard();
           renderStudents();
           alert('تمت استعادة النسخة الاحتياطية بنجاح.');
@@ -1586,6 +1679,186 @@
     renderStudents();
     fillReportGrades();
     toggleReportGrade();
+    applyRoleVisibility();
+  </script>
+
+  <script type="module">
+    import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+    import {
+      getFirestore, collection, doc, setDoc, deleteDoc, writeBatch, onSnapshot
+    } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+    // استبدلي هذه القيم ببيانات مشروعكِ alreef-attendance من إعدادات Firebase
+    const firebaseConfig = {
+      apiKey: "YOUR_API_KEY",
+      authDomain: "alreef-attendance.firebaseapp.com",
+      projectId: "alreef-attendance",
+      storageBucket: "alreef-attendance.appspot.com",
+      messagingSenderId: "YOUR_SENDER_ID",
+      appId: "YOUR_APP_ID"
+    };
+
+    // مفتاح التفعيل للهواتف الثلاثة المعتمدة (مثال: ?admin=REEF_CTRL_2026)
+    const ADMIN_ACCESS_KEY = "REEF_CTRL_2026";
+    const MAX_CONTROL_DEVICES = 3;
+
+    const app = initializeApp(firebaseConfig);
+    const db = getFirestore(app);
+
+    const studentsCol = collection(db, "alreef_students");
+    const recordsCol  = collection(db, "alreef_records");
+    const metaDoc     = doc(db, "alreef_meta", "config");
+    const devicesCol  = collection(db, "alreef_control_devices");
+
+    let deviceId = localStorage.getItem("alreef_device_id");
+    if (!deviceId) {
+      deviceId = "DEV-" + Math.random().toString(36).slice(2, 10).toUpperCase();
+      localStorage.setItem("alreef_device_id", deviceId);
+    }
+
+    let canControl = localStorage.getItem("alreef_can_control") === "true";
+    let approvedDevices = [];
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const keyFromUrl = urlParams.get("admin");
+
+    function renderRoleBadge() {
+      let badge = document.getElementById("modeBadge");
+      if (!badge) {
+        badge = document.createElement("span");
+        badge.id = "modeBadge";
+        document.querySelector(".topbar .toolbar")?.prepend(badge);
+      }
+      if (canControl) {
+        badge.className = "badge rounded-pill text-bg-success";
+        badge.innerHTML = `<i class="fa-solid fa-shield-halved"></i> تحكّم (${approvedDevices.length}/${MAX_CONTROL_DEVICES})`;
+      } else {
+        badge.className = "badge rounded-pill text-bg-secondary";
+        badge.innerHTML = `<i class="fa-solid fa-eye"></i> مشاهدة فقط`;
+      }
+    }
+
+    async function tryActivateControl() {
+      if (!keyFromUrl || keyFromUrl !== ADMIN_ACCESS_KEY) return;
+
+      const alreadyApproved = approvedDevices.some(d => d.id === deviceId);
+      if (alreadyApproved) {
+        canControl = true;
+        localStorage.setItem("alreef_can_control", "true");
+        renderRoleBadge();
+        if (typeof refreshCurrentView === "function") refreshCurrentView();
+        return;
+      }
+
+      if (approvedDevices.length >= MAX_CONTROL_DEVICES) {
+        alert(`تم بلوغ الحد الأقصى لهواتف التحكّم (${MAX_CONTROL_DEVICES} هواتف).`);
+        return;
+      }
+
+      await setDoc(doc(devicesCol, deviceId), {
+        deviceId,
+        activatedAt: new Date().toISOString()
+      });
+      canControl = true;
+      localStorage.setItem("alreef_can_control", "true");
+      renderRoleBadge();
+      if (typeof refreshCurrentView === "function") refreshCurrentView();
+      alert("تم تفعيل وضع التحكّم على هذا الجهاز بنجاح.");
+    }
+
+    onSnapshot(devicesCol, snap => {
+      approvedDevices = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      const isListed = approvedDevices.some(d => d.id === deviceId);
+      canControl = isListed && (localStorage.getItem("alreef_can_control") === "true");
+      localStorage.setItem("alreef_can_control", String(canControl));
+      tryActivateControl();
+      renderRoleBadge();
+      if (typeof refreshCurrentView === "function") refreshCurrentView();
+    });
+
+    onSnapshot(studentsCol, snap => {
+      students = snap.docs.map(d => d.data());
+      localStorage.setItem("school_students", JSON.stringify(students));
+      if (typeof refreshCurrentView === "function") refreshCurrentView();
+    });
+
+    onSnapshot(recordsCol, snap => {
+      records = snap.docs.map(d => d.data());
+      localStorage.setItem("school_records", JSON.stringify(records));
+      if (typeof refreshCurrentView === "function") refreshCurrentView();
+    });
+
+    onSnapshot(metaDoc, snap => {
+      if (snap.exists()) {
+        const m = snap.data();
+        if (m.schoolName) {
+          schoolName = m.schoolName;
+          localStorage.setItem("school_name", schoolName);
+        }
+        if (m.timeLate) {
+          timeLateSetting = m.timeLate;
+          localStorage.setItem("school_time_late", timeLateSetting);
+        }
+        if (typeof refreshCurrentView === "function") refreshCurrentView();
+      }
+    });
+
+    window.cloudSaveStudent = async function(studentObj) {
+      if (!canControl) return;
+      await setDoc(doc(studentsCol, studentObj.id), studentObj);
+    };
+
+    window.cloudDeleteStudent = async function(studentId) {
+      if (!canControl) return;
+      await deleteDoc(doc(studentsCol, studentId));
+    };
+
+    window.cloudSaveRecord = async function(recordObj) {
+      if (!canControl) return;
+      const recId = recordObj.id || `${recordObj.date}_${recordObj.studentId}`;
+      recordObj.id = recId;
+      await setDoc(doc(recordsCol, recId), recordObj);
+    };
+
+    window.cloudSaveRecordsBatch = async function(list) {
+      if (!canControl || !Array.isArray(list) || !list.length) return;
+      const batch = writeBatch(db);
+      list.forEach(rec => {
+        const recId = rec.id || `${rec.date}_${rec.studentId}`;
+        rec.id = recId;
+        batch.set(doc(recordsCol, recId), rec);
+      });
+      await batch.commit();
+    };
+
+    window.cloudSaveMeta = async function(metaObj) {
+      if (!canControl) return;
+      await setDoc(metaDoc, metaObj, { merge: true });
+    };
+
+    window.cloudClearAll = async function() {
+      if (!canControl) return;
+      const batch = writeBatch(db);
+      students.forEach(s => batch.delete(doc(studentsCol, s.id)));
+      records.forEach(r => batch.delete(doc(recordsCol, r.id || `${r.date}_${r.studentId}`)));
+      await batch.commit();
+    };
+
+    window.cloudRestoreAll = async function(payload) {
+      if (!canControl) return;
+      const batch = writeBatch(db);
+      batch.set(metaDoc, { schoolName: payload.schoolName, timeLate: payload.timeLate }, { merge: true });
+      (payload.students || []).forEach(s => batch.set(doc(studentsCol, s.id), s));
+      (payload.records || []).forEach(r => {
+        const recId = r.id || `${r.date}_${r.studentId}`;
+        r.id = recId;
+        batch.set(doc(recordsCol, recId), r);
+      });
+      await batch.commit();
+    };
+
+    window.isControlDevice = () => canControl;
+    renderRoleBadge();
   </script>
 </body>
 </html>
