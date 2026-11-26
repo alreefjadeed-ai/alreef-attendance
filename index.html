@@ -820,7 +820,13 @@
 
   <script>
     const $ = id => document.getElementById(id);
-    const today = () => new Date().toISOString().slice(0, 10);
+    const today = () => {
+      const parts = new Intl.DateTimeFormat('en-CA', {
+        timeZone: 'Africa/Tripoli', year: 'numeric', month: '2-digit', day: '2-digit'
+      }).formatToParts(new Date());
+      const v = Object.fromEntries(parts.map(p => [p.type, p.value]));
+      return `${v.year}-${v.month}-${v.day}`;
+    };
     const uid = () => ('STU-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6)).toUpperCase();
 
     let students = JSON.parse(localStorage.getItem('school_students') || '[]');
@@ -869,7 +875,20 @@
       } catch (e) {}
     }
 
+    function dedupeAttendance(list) {
+      const byDay = new Map();
+      for (const r of (Array.isArray(list) ? list : [])) {
+        if (!r || !r.studentId || !r.date) continue;
+        const key = `${r.studentId}__${r.date}`;
+        const previous = byDay.get(key);
+        // Keep the last occurrence, preferring a record with a stable id.
+        if (!previous || r.id || !previous.id) byDay.set(key, { ...previous, ...r });
+      }
+      return [...byDay.values()];
+    }
+
     function saveLocalCache() {
+      records = dedupeAttendance(records);
       localStorage.setItem('school_students', JSON.stringify(students));
       localStorage.setItem('school_records', JSON.stringify(records));
       localStorage.setItem('school_name', schoolName);
@@ -998,13 +1017,23 @@
       };
       if (id) {
         let i = students.findIndex(s => s.id === id);
-        if (i >= 0) students[i] = { ...students[i], ...data };
+        if (i >= 0) {
+          students[i] = { ...students[i], ...data };
+          // Keep the student's historical attendance grouped under the updated class/section.
+          records = records.map(r => r.studentId === id ? {
+            ...r, name: data.name, className: data.className, section: data.section,
+            seat: data.seat, phone: data.phone
+          } : r);
+        }
       } else {
         students.push(data);
       }
       saveLocalCache();
       if (typeof window.cloudSaveStudent === 'function') {
         await window.cloudSaveStudent(data);
+      }
+      if (id && typeof window.cloudSaveRecordsBatch === 'function') {
+        await window.cloudSaveRecordsBatch(records.filter(r => r.studentId === id));
       }
       resetStudentForm();
       renderStudents();
@@ -1064,29 +1093,17 @@
       const stName = st?.name || id;
       if (!confirm(`هل تريدين حذف الطالب (${stName}) من قائمة الطلاب؟`)) return;
 
-      const deleteWithRecords = confirm('هل تريدين أيضاً حذف جميع سجلات الحضور والغياب والتأخير الخاصة بهذا الطالب نهائياً؟ (اضغطي "إلغاء" للإبقاء على سجلاته السابقة)');
-
+      // Student removal is archival: attendance history is intentionally retained.
       students = students.filter(s => s.id !== id);
-      let removedRecIds = [];
-      if (deleteWithRecords) {
-        removedRecIds = records
-          .filter(r => r.studentId === id)
-          .map(r => r.id || `${r.date}_${r.studentId}`);
-        records = records.filter(r => r.studentId !== id);
-      }
-
       saveLocalCache();
       if (typeof window.cloudDeleteStudent === 'function') {
         await window.cloudDeleteStudent(id);
-      }
-      if (deleteWithRecords && removedRecIds.length && typeof window.cloudDeleteRecordsBatch === 'function') {
-        await window.cloudDeleteRecordsBatch(removedRecIds);
       }
 
       renderStudents();
       dashboard();
       refreshCurrentView();
-      alert(deleteWithRecords ? 'تم حذف الطالب وجميع سجلاته بنجاح.' : 'تم حذف الطالب مع الإبقاء على سجلاته السابقة.');
+      alert('تم حذف الطالب من القائمة مع الاحتفاظ بجميع سجلات حضوره وغيابه السابقة.');
     }
 
     function fillManualStudents() {
@@ -1117,7 +1134,7 @@
 
       let targetStatus = statusOverride || getCalculatedStatus();
       let d = today();
-      let currentTimeStr = new Date().toLocaleTimeString('ar-LY', { hour: '2-digit', minute: '2-digit' });
+      let currentTimeStr = new Date().toLocaleTimeString('ar-LY', { timeZone: 'Africa/Tripoli', hour: '2-digit', minute: '2-digit' });
       let old = records.find(x => x.studentId === id && x.date === d);
       let targetRecord = null;
 
@@ -1341,7 +1358,7 @@
       }
       r.id = r.id || `${date}_${id}`;
       r.status = status;
-      r.time = new Date().toLocaleTimeString('ar-LY', { hour: '2-digit', minute: '2-digit' });
+      r.time = new Date().toLocaleTimeString('ar-LY', { timeZone: 'Africa/Tripoli', hour: '2-digit', minute: '2-digit' });
       saveLocalCache();
       if (typeof window.cloudSaveRecord === 'function') {
         await window.cloudSaveRecord(r);
@@ -1589,6 +1606,7 @@
       if (!d) return alert('يرجى اختيار التاريخ أولاً.');
       if (d > today()) return alert('لا يمكن اعتماد الغياب لتاريخ في المستقبل.');
 
+      records = dedupeAttendance(records);
       let missing = students.filter(s => !records.some(r => r.studentId === s.id && r.date === d));
       if (!missing.length) return alert('جميع الطلاب لديهم حالات مسجلة في هذا التاريخ بالفعل.');
 
@@ -1609,10 +1627,18 @@
 
       records.push(...added);
       saveLocalCache();
+      let cloudError = null;
       if (typeof window.cloudSaveRecordsBatch === 'function') {
-        await window.cloudSaveRecordsBatch(added);
+        try { await window.cloudSaveRecordsBatch(added); }
+        catch (err) { cloudError = err; }
       }
-      alert(`تم بنجاح اعتماد غياب ${missing.length} طالب.`);
+      const stillMissing = students.filter(st => !records.some(r => r.studentId === st.id && r.date === d));
+      if (cloudError || stillMissing.length) {
+        const names = (stillMissing.length ? stillMissing : missing).map(st => st.name).join('، ');
+        alert(`تمت إضافة ${added.length - stillMissing.length} حالة محلياً. تعذّر تأكيد ${stillMissing.length || missing.length} حالة سحابياً. الأسماء: ${names}\nتحققي من الاتصال ثم أعيدي المزامنة.`);
+      } else {
+        alert(`تم بنجاح اعتماد غياب ${added.length} طالب.`);
+      }
       generateMonthlyReport();
       dashboard();
     }
@@ -1734,7 +1760,7 @@
   <script type="module">
     import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
     import {
-      getFirestore, collection, doc, setDoc, deleteDoc, writeBatch, onSnapshot
+      getFirestore, collection, doc, setDoc, deleteDoc, writeBatch, onSnapshot, getDocs, query, where
     } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
     const firebaseConfig = {
@@ -1900,7 +1926,7 @@
     });
 
     onSnapshot(recordsCol, snap => {
-      records = snap.docs.map(d => d.data());
+      records = dedupeAttendance(snap.docs.map(d => d.data()));
       localStorage.setItem("school_records", JSON.stringify(records));
       if (typeof refreshCurrentView === "function") refreshCurrentView();
     });
@@ -1923,6 +1949,18 @@
     window.cloudSaveStudent = async function(studentObj) {
       if (!canControl) return;
       await setDoc(doc(studentsCol, studentObj.id), studentObj);
+      // Keep historical records consistent with the student's latest section/class.
+      const snap = await getDocs(query(recordsCol, where("studentId", "==", studentObj.id)));
+      const docs = snap.docs;
+      for (let i = 0; i < docs.length; i += 450) {
+        const batch = writeBatch(db);
+        docs.slice(i, i + 450).forEach(d => batch.update(d.ref, {
+          name: studentObj.name, className: studentObj.className,
+          section: studentObj.section || '', seat: studentObj.seat || '',
+          phone: studentObj.phone || ''
+        }));
+        await batch.commit();
+      }
     };
 
     window.cloudDeleteStudent = async function(studentId) {
@@ -1944,20 +1982,26 @@
 
     window.cloudDeleteRecordsBatch = async function(recIds) {
       if (!canControl || !Array.isArray(recIds) || !recIds.length) return;
-      const batch = writeBatch(db);
-      recIds.forEach(id => batch.delete(doc(recordsCol, id)));
-      await batch.commit();
+      for (let i = 0; i < recIds.length; i += 450) {
+        const batch = writeBatch(db);
+        recIds.slice(i, i + 450).forEach(id => batch.delete(doc(recordsCol, id)));
+        await batch.commit();
+      }
     };
 
     window.cloudSaveRecordsBatch = async function(list) {
       if (!canControl || !Array.isArray(list) || !list.length) return;
-      const batch = writeBatch(db);
+      const unique = new Map();
       list.forEach(rec => {
         const recId = rec.id || `${rec.date}_${rec.studentId}`;
-        rec.id = recId;
-        batch.set(doc(recordsCol, recId), rec);
+        unique.set(recId, { ...rec, id: recId });
       });
-      await batch.commit();
+      const items = [...unique.values()];
+      for (let i = 0; i < items.length; i += 450) {
+        const batch = writeBatch(db);
+        items.slice(i, i + 450).forEach(rec => batch.set(doc(recordsCol, rec.id), rec));
+        await batch.commit();
+      }
     };
 
     window.cloudSaveMeta = async function(metaObj) {
@@ -1967,23 +2011,30 @@
 
     window.cloudClearAll = async function() {
       if (!canControl) return;
-      const batch = writeBatch(db);
-      students.forEach(s => batch.delete(doc(studentsCol, s.id)));
-      records.forEach(r => batch.delete(doc(recordsCol, r.id || `${r.date}_${r.studentId}`)));
-      await batch.commit();
+      const [studentSnap, recordSnap] = await Promise.all([getDocs(studentsCol), getDocs(recordsCol)]);
+      const refs = [...studentSnap.docs, ...recordSnap.docs].map(d => d.ref);
+      for (let i = 0; i < refs.length; i += 450) {
+        const batch = writeBatch(db);
+        refs.slice(i, i + 450).forEach(ref => batch.delete(ref));
+        await batch.commit();
+      }
     };
 
     window.cloudRestoreAll = async function(payload) {
       if (!canControl) return;
-      const batch = writeBatch(db);
-      batch.set(metaDoc, { schoolName: payload.schoolName, timeLate: payload.timeLate }, { merge: true });
-      (payload.students || []).forEach(s => batch.set(doc(studentsCol, s.id), s));
-      (payload.records || []).forEach(r => {
-        const recId = r.id || `${r.date}_${r.studentId}`;
-        r.id = recId;
-        batch.set(doc(recordsCol, recId), r);
-      });
-      await batch.commit();
+      await setDoc(metaDoc, { schoolName: payload.schoolName, timeLate: payload.timeLate }, { merge: true });
+      const ops = [
+        ...(payload.students || []).map(st => ({ ref: doc(studentsCol, st.id), data: st })),
+        ...dedupeAttendance(payload.records || []).map(r => ({
+          ref: doc(recordsCol, r.id || `${r.date}_${r.studentId}`),
+          data: { ...r, id: r.id || `${r.date}_${r.studentId}` }
+        }))
+      ];
+      for (let i = 0; i < ops.length; i += 450) {
+        const batch = writeBatch(db);
+        ops.slice(i, i + 450).forEach(op => batch.set(op.ref, op.data));
+        await batch.commit();
+      }
     };
 
     window.isControlDevice = () => canControl;
