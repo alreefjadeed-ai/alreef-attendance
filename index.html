@@ -792,6 +792,20 @@
             <label class="form-label">وقت احتساب التأخير</label>
             <input type="time" id="timeLate" class="form-control" value="08:15">
           </div>
+          <div class="col-md-6">
+            <label class="form-label">المنطقة الزمنية (اختاريها يدويًا)</label>
+            <select id="schoolTimeZone" class="form-select">
+              <option value="Africa/Tripoli">ليبيا – طرابلس</option>
+              <option value="Africa/Cairo">مصر – القاهرة</option>
+              <option value="Asia/Riyadh">السعودية – الرياض</option>
+              <option value="Asia/Dubai">الإمارات – دبي</option>
+              <option value="Asia/Kuwait">الكويت</option>
+              <option value="Europe/Istanbul">تركيا – إسطنبول</option>
+              <option value="Europe/London">بريطانيا – لندن</option>
+              <option value="UTC">UTC</option>
+            </select>
+            <small class="text-muted">سيُستخدم التوقيت الذي تختارينه في التسجيل والتقارير.</small>
+          </div>
         </div>
         <div class="mt-3">
           <button class="btn btn-primary" onclick="saveSettings()"><i class="fa-solid fa-floppy-disk"></i> حفظ الإعدادات</button>
@@ -820,17 +834,31 @@
 
   <script>
     const $ = id => document.getElementById(id);
+    let schoolTimeZone = localStorage.getItem('school_time_zone') || 'Africa/Tripoli';
     const today = () => {
       const parts = new Intl.DateTimeFormat('en-CA', {
-        timeZone: 'Africa/Tripoli', year: 'numeric', month: '2-digit', day: '2-digit'
+        timeZone: schoolTimeZone, year: 'numeric', month: '2-digit', day: '2-digit'
       }).formatToParts(new Date());
       const v = Object.fromEntries(parts.map(p => [p.type, p.value]));
       return `${v.year}-${v.month}-${v.day}`;
     };
+    function isValidTimeZone(zone) { try { new Intl.DateTimeFormat('en-US', { timeZone: zone }); return true; } catch (_) { return false; } }
     const uid = () => ('STU-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 6)).toUpperCase();
+    const tripoliTime = (date = new Date()) => new Intl.DateTimeFormat('en-GB', {
+      timeZone: schoolTimeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+    }).format(date);
 
-    let students = JSON.parse(localStorage.getItem('school_students') || '[]');
-    let records = JSON.parse(localStorage.getItem('school_records') || '[]');
+    function readArrayCache(key) {
+      try {
+        const value = JSON.parse(localStorage.getItem(key) || '[]');
+        return Array.isArray(value) ? value : [];
+      } catch (err) {
+        console.error(`تعذرت قراءة التخزين المحلي (${key})`, err);
+        return [];
+      }
+    }
+    let students = readArrayCache('school_students');
+    let records = readArrayCache('school_records');
     let schoolName = localStorage.getItem('school_name') || 'مدرسة الريف الجديد للتعليم الخاص';
     let timeLateSetting = localStorage.getItem('school_time_late') || '08:15';
     let scanner = null;
@@ -877,12 +905,24 @@
 
     function dedupeAttendance(list) {
       const byDay = new Map();
+      const rank = r => {
+        const stamp = Date.parse(r.updatedAt || r.createdAt || '') || 0;
+        const normalizedTime = String(r.time || '').replace(/[٠-٩]/g, c => '٠١٢٣٤٥٦٧٨٩'.indexOf(c));
+        const time = normalizedTime.match(/(\d{1,2}):(\d{2})/);
+        const minutes = time ? Number(time[1]) * 60 + Number(time[2]) : -1;
+        const canonical = r.id === `${r.date}_${r.studentId}` ? 1 : 0;
+        return [stamp, minutes, canonical];
+      };
       for (const r of (Array.isArray(list) ? list : [])) {
         if (!r || !r.studentId || !r.date) continue;
         const key = `${r.studentId}__${r.date}`;
         const previous = byDay.get(key);
-        // Keep the last occurrence, preferring a record with a stable id.
-        if (!previous || r.id || !previous.id) byDay.set(key, { ...previous, ...r });
+        if (!previous) { byDay.set(key, r); continue; }
+        const a = rank(r), b = rank(previous);
+        if (a[0] > b[0] || (a[0] === b[0] && a[1] > b[1]) ||
+            (a[0] === b[0] && a[1] === b[1] && a[2] > b[2])) {
+          byDay.set(key, r);
+        }
       }
       return [...byDay.values()];
     }
@@ -893,6 +933,7 @@
       localStorage.setItem('school_records', JSON.stringify(records));
       localStorage.setItem('school_name', schoolName);
       localStorage.setItem('school_time_late', timeLateSetting);
+      localStorage.setItem('school_time_zone', schoolTimeZone);
     }
 
     function esc(s) {
@@ -971,6 +1012,7 @@
       if (name === 'settings') {
         $('schoolNameInput').value = schoolName;
         $('timeLate').value = timeLateSetting;
+        $('schoolTimeZone').value = schoolTimeZone;
         if (typeof window.renderDevicesAdmin === 'function') window.renderDevicesAdmin();
       }
       applyRoleVisibility();
@@ -983,12 +1025,9 @@
       $('stAbsent').textContent = r.filter(x => x.status === 'غائب').length;
       $('stLate').textContent = r.filter(x => x.status === 'متأخر').length;
       $('dashDate').textContent = d;
-      $('todayLabel').textContent = new Date().toLocaleDateString('ar-LY', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric'
-      });
+      $('todayLabel').textContent = new Intl.DateTimeFormat('ar-LY', {
+        timeZone: schoolTimeZone, weekday: 'long', year: 'numeric', month: 'long', day: 'numeric'
+      }).format(new Date());
       $('schoolHeading').textContent = schoolName;
       $('sideSchoolName').textContent = schoolName.length > 22 ? schoolName.slice(0, 20) + '...' : schoolName;
       $('dashSummary').innerHTML = r.length
@@ -1029,16 +1068,17 @@
         students.push(data);
       }
       saveLocalCache();
-      if (typeof window.cloudSaveStudent === 'function') {
+      let cloudError = null;
+      try {
+        if (typeof window.cloudSaveStudent !== 'function') throw new Error('خدمة السحابة غير جاهزة');
         await window.cloudSaveStudent(data);
-      }
-      if (id && typeof window.cloudSaveRecordsBatch === 'function') {
-        await window.cloudSaveRecordsBatch(records.filter(r => r.studentId === id));
-      }
+      } catch (err) { cloudError = err; console.error('Student cloud save failed:', err); }
       resetStudentForm();
       renderStudents();
       dashboard();
-      alert('تم حفظ بيانات الطالب بنجاح.');
+      alert(cloudError
+        ? 'تم حفظ بيانات الطالب على هذا الجهاز، لكن تعذرت مزامنتها مع السحابة. لا تعتمدي على جهاز آخر قبل نجاح المزامنة.'
+        : 'تم حفظ بيانات الطالب ومزامنتها بنجاح.');
     }
 
     function renderStudents() {
@@ -1094,11 +1134,11 @@
       if (!confirm(`هل تريدين حذف الطالب (${stName}) من قائمة الطلاب؟`)) return;
 
       // Student removal is archival: attendance history is intentionally retained.
+      if (typeof window.cloudDeleteStudent !== 'function') { alert('خدمة السحابة غير جاهزة؛ لم يتم حذف الطالب.'); return; }
+      try { await window.cloudDeleteStudent(id); }
+      catch (err) { alert('تعذّر حذف الطالب من السحابة؛ لم يتم حذفه من القائمة.'); return; }
       students = students.filter(s => s.id !== id);
       saveLocalCache();
-      if (typeof window.cloudDeleteStudent === 'function') {
-        await window.cloudDeleteStudent(id);
-      }
 
       renderStudents();
       dashboard();
@@ -1118,9 +1158,8 @@
 
     function getCalculatedStatus() {
       if (!$('autoStatusCheck').checked) return $('scanStatus').value;
-      let now = new Date();
-      let currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-      return currentTime > timeLateSetting ? 'متأخر' : 'حاضر';
+      const currentTime = tripoliTime();
+      return currentTime >= timeLateSetting ? 'متأخر' : 'حاضر';
     }
 
     async function registerStudent(id, statusOverride = null) {
@@ -1134,7 +1173,7 @@
 
       let targetStatus = statusOverride || getCalculatedStatus();
       let d = today();
-      let currentTimeStr = new Date().toLocaleTimeString('ar-LY', { timeZone: 'Africa/Tripoli', hour: '2-digit', minute: '2-digit' });
+      let currentTimeStr = tripoliTime();
       let old = records.find(x => x.studentId === id && x.date === d);
       let targetRecord = null;
 
@@ -1162,17 +1201,26 @@
           phone: s.phone || '',
           date: d,
           time: currentTimeStr,
-          status: targetStatus
+          status: targetStatus,
+          createdAt: new Date().toISOString()
         };
         records.push(targetRecord);
       }
 
       saveLocalCache();
-      if (typeof window.cloudSaveRecord === 'function') {
-        await window.cloudSaveRecord(targetRecord);
+      let cloudSaved = true;
+      if (typeof window.cloudSaveRecord !== 'function') cloudSaved = false;
+      else {
+        try { await window.cloudSaveRecord(targetRecord); }
+        catch (err) { cloudSaved = false; console.error('Attendance cloud save failed:', err); }
       }
-      playSound('success');
-      showScan(`تم تسجيل: <b>${esc(s.name)}</b> — <span class="badge-status ${statusClass(targetStatus)}">${targetStatus}</span>`, 'success');
+      if (cloudSaved) {
+        playSound('success');
+        showScan(`تم تسجيل: <b>${esc(s.name)}</b> — <span class="badge-status ${statusClass(targetStatus)}">${targetStatus}</span>`, 'success');
+      } else {
+        playSound('warning');
+        showScan(`تم تسجيل ${esc(s.name)} محلياً، لكن فشلت المزامنة السحابية. أعيدي المزامنة قبل استخدام جهاز آخر.`, 'warning');
+      }
       showPopCard(s, targetStatus, currentTimeStr);
       dashboard();
     }
@@ -1332,7 +1380,7 @@
       records = records.filter(x => !(x.studentId === studentId && x.date === date));
       saveLocalCache();
       if (typeof window.cloudDeleteRecord === 'function') {
-        await window.cloudDeleteRecord(recId);
+        await window.cloudDeleteRecord(studentId, date);
       }
       refreshCurrentView();
     }
@@ -1356,12 +1404,16 @@
         renderAll();
         return;
       }
-      r.id = r.id || `${date}_${id}`;
+      r.id = `${date}_${id}`;
       r.status = status;
-      r.time = new Date().toLocaleTimeString('ar-LY', { timeZone: 'Africa/Tripoli', hour: '2-digit', minute: '2-digit' });
+      r.time = tripoliTime();
+      r.updatedAt = new Date().toISOString();
+      records = records.filter(x => x === r || !(x.studentId === id && x.date === date));
       saveLocalCache();
-      if (typeof window.cloudSaveRecord === 'function') {
-        await window.cloudSaveRecord(r);
+      if (typeof window.cloudSaveRecord !== 'function') alert('تم تعديل الحالة محلياً، لكن خدمة السحابة غير جاهزة للمزامنة.');
+      else {
+        try { await window.cloudSaveRecord(r); }
+        catch (err) { alert('تم تعديل الحالة محلياً، لكن فشلت المزامنة السحابية.'); console.error(err); }
       }
       renderAll();
       renderCategory(status);
@@ -1513,7 +1565,14 @@
       let month = $('reportMonth').value || today().slice(0, 7);
       let type = $('reportType').value;
       let selected = $('reportGrade').value;
-      let monthRecords = records.filter(r => r.date?.startsWith(month));
+      const studentById = new Map(students.map(s => [s.id, s]));
+      let monthRecords = dedupeAttendance(records.filter(r => r.date?.startsWith(month))).map(r => {
+        const current = studentById.get(r.studentId);
+        return current ? {
+          ...r, name: current.name, className: current.className,
+          section: current.section || '', seat: current.seat || '', phone: current.phone || ''
+        } : r;
+      });
       let grades = [...new Set([...students.map(s => s.className), ...monthRecords.map(r => r.className)].filter(Boolean))].sort(sortGrades);
 
       if (type === 'single') {
@@ -1531,6 +1590,12 @@
       </div>`;
 
       if (!grades.length) html += '<div class="empty">لا توجد بيانات مسجلة لهذا الشهر.</div>';
+      if (type === 'all' && grades.length) {
+        const totalPresent = monthRecords.filter(r => r.status === 'حاضر').length;
+        const totalAbsent = monthRecords.filter(r => r.status === 'غائب').length;
+        const totalLate = monthRecords.filter(r => r.status === 'متأخر').length;
+        html += `<div class="alert alert-primary text-center fw-bold">إجمالي المدرسة لهذا الشهر: حضور ${totalPresent} | غياب ${totalAbsent} | تأخير ${totalLate}</div>`;
+      }
 
       grades.forEach((grade, idx) => {
         let classStudents = students.filter(s => s.className === grade).sort((a, b) => sortArabic(a.section, b.section) || sortArabic(a.name, b.name));
@@ -1681,31 +1746,35 @@
       if (!requireControl()) return;
       schoolName = $('schoolNameInput').value.trim() || 'مدرسة الريف الجديد للتعليم الخاص';
       timeLateSetting = $('timeLate').value || '08:15';
+      schoolTimeZone = $('schoolTimeZone').value || 'Africa/Tripoli';
       saveLocalCache();
-      if (typeof window.cloudSaveMeta === 'function') {
-        await window.cloudSaveMeta({ schoolName, timeLate: timeLateSetting });
+      let cloudSaved = true;
+      if (typeof window.cloudSaveMeta !== 'function') cloudSaved = false;
+      else {
+        try { await window.cloudSaveMeta({ schoolName, timeLate: timeLateSetting, timeZone: schoolTimeZone }); }
+        catch (err) { cloudSaved = false; console.error(err); }
       }
       $('schoolHeading').textContent = schoolName;
       dashboard();
-      alert('تم حفظ الإعدادات بنجاح.');
+      alert(cloudSaved ? 'تم حفظ الإعدادات ومزامنتها بنجاح.' : 'حُفظت الإعدادات محلياً، لكن فشلت المزامنة السحابية.');
     }
 
     async function clearData() {
       if (!requireControl()) return;
       if (!confirm('تأكيد مسح جميع الطلاب والسجلات نهائياً؟')) return;
+      if (typeof window.cloudClearAll !== 'function') { alert('خدمة السحابة غير جاهزة؛ لم يتم مسح البيانات.'); return; }
+      try { await window.cloudClearAll(); }
+      catch (err) { alert('تعذّر مسح البيانات من السحابة؛ لم يتم مسح النسخة المحلية. تحققي من الاتصال والصلاحيات.'); return; }
       students = [];
       records = [];
       saveLocalCache();
-      if (typeof window.cloudClearAll === 'function') {
-        await window.cloudClearAll();
-      }
       renderStudents();
       dashboard();
       alert('تم مسح البيانات بنجاح.');
     }
 
     function backupData() {
-      let data = { schoolName, timeLateSetting, students, records, version: 2 };
+      let data = { schoolName, timeLateSetting, timeZone: schoolTimeZone, students, records, version: 2 };
       let blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       let url = URL.createObjectURL(blob);
       let a = document.createElement('a');
@@ -1716,32 +1785,46 @@
     }
 
     function restoreData(e) {
-      if (!requireControl()) {
-        e.target.value = '';
-        return;
-      }
-      let f = e.target.files[0];
+      if (!requireControl()) { e.target.value = ''; return; }
+      const f = e.target.files[0];
       if (!f) return;
-      let rd = new FileReader();
+      const rd = new FileReader();
       rd.onload = async () => {
+        let d;
         try {
-          let d = JSON.parse(rd.result);
-          if (!Array.isArray(d.students) || !Array.isArray(d.records)) throw Error();
-          if (!confirm('سيتم استبدال البيانات الحالية بالنسخة الاحتياطية. هل تريدين الاستمرار؟')) return;
-          students = d.students;
-          records = d.records;
-          schoolName = d.schoolName || schoolName;
-          timeLateSetting = d.timeLateSetting || timeLateSetting;
-          saveLocalCache();
-          if (typeof window.cloudRestoreAll === 'function') {
-            await window.cloudRestoreAll({ schoolName, timeLate: timeLateSetting, students, records });
-          }
-          dashboard();
-          renderStudents();
-          alert('تمت استعادة النسخة الاحتياطية بنجاح.');
+          d = JSON.parse(rd.result);
+          if (!Array.isArray(d.students) || !Array.isArray(d.records)) throw new Error('invalid backup');
         } catch (err) {
-          alert('ملف النسخة الاحتياطية غير صالح.');
+          alert('ملف النسخة الاحتياطية غير صالح أو تالف.');
+          return;
         }
+        if (!confirm('سيتم استبدال البيانات الحالية بالنسخة الاحتياطية. هل تريدين الاستمرار؟')) return;
+        const nextSchoolName = d.schoolName || schoolName;
+        const nextLateTime = d.timeLateSetting || timeLateSetting;
+        const nextTimeZone = d.timeZone || schoolTimeZone;
+        const nextStudents = d.students;
+        const nextRecords = dedupeAttendance(d.records);
+        try {
+          if (typeof window.cloudRestoreAll === 'function') {
+            await window.cloudRestoreAll({ schoolName: nextSchoolName, timeLate: nextLateTime, timeZone: nextTimeZone, students: nextStudents, records: nextRecords });
+          }
+        } catch (err) {
+          console.error('Cloud restore failed:', err);
+          alert('فشلت الاستعادة السحابية؛ لم يتم استبدال البيانات المحلية. تحققي من الاتصال والصلاحيات ثم أعيدي المحاولة.');
+          return;
+        }
+        students = nextStudents;
+        records = nextRecords;
+        schoolName = nextSchoolName;
+        timeLateSetting = nextLateTime;
+        schoolTimeZone = nextTimeZone;
+        saveLocalCache();
+        dashboard();
+        renderStudents();
+        refreshCurrentView();
+        alert(typeof window.cloudRestoreAll === 'function'
+          ? 'تمت استعادة النسخة الاحتياطية محلياً وسحابياً بنجاح.'
+          : 'تمت الاستعادة محلياً فقط؛ لم تتوفر مزامنة سحابية في هذه الجلسة.');
       };
       rd.readAsText(f);
       e.target.value = '';
@@ -1914,7 +1997,12 @@
       const isListed = approvedDevices.some(d => d.id === deviceId);
       canControl = hasAdminParam && (keyFromUrl === ADMIN_ACCESS_KEY) && isListed;
       localStorage.setItem("alreef_can_control", String(canControl));
-      tryActivateControl();
+      tryActivateControl().catch(err => {
+        canControl = false;
+        localStorage.setItem('alreef_can_control', 'false');
+        console.error('Control activation failed:', err);
+        renderRoleBadge();
+      });
       renderRoleBadge();
       if (typeof refreshCurrentView === "function") refreshCurrentView();
     });
@@ -1942,23 +2030,38 @@
           timeLateSetting = m.timeLate;
           localStorage.setItem("school_time_late", timeLateSetting);
         }
+        if (m.timeZone && isValidTimeZone(m.timeZone)) {
+          schoolTimeZone = m.timeZone;
+          localStorage.setItem('school_time_zone', schoolTimeZone);
+        }
         if (typeof refreshCurrentView === "function") refreshCurrentView();
       }
     });
 
     window.cloudSaveStudent = async function(studentObj) {
-      if (!canControl) return;
+      if (!canControl) throw new Error('الجهاز غير مخوّل بحفظ بيانات الطلاب');
       await setDoc(doc(studentsCol, studentObj.id), studentObj);
-      // Keep historical records consistent with the student's latest section/class.
-      const snap = await getDocs(query(recordsCol, where("studentId", "==", studentObj.id)));
-      const docs = snap.docs;
-      for (let i = 0; i < docs.length; i += 450) {
+      // Update history under the student's current class and collapse legacy duplicates to one canonical document per day.
+      const snap = await getDocs(query(recordsCol, where('studentId', '==', studentObj.id)));
+      const sourceDocs = snap.docs;
+      const uniqueRecords = dedupeAttendance(sourceDocs.map(d => ({ ...d.data(), id: d.id })));
+      const canonicalIds = new Set(uniqueRecords.map(r => `${r.date}_${studentObj.id}`));
+      const ops = [];
+      for (const r of uniqueRecords) {
+        const id = `${r.date}_${studentObj.id}`;
+        ops.push({ type: 'set', ref: doc(recordsCol, id), data: {
+          ...r, id, studentId: studentObj.id, name: studentObj.name,
+          className: studentObj.className, section: studentObj.section || '',
+          seat: studentObj.seat || '', phone: studentObj.phone || ''
+        }});
+      }
+      for (const d of sourceDocs) {
+        const logicalId = `${d.data().date}_${studentObj.id}`;
+        if (d.id !== logicalId && canonicalIds.has(logicalId)) ops.push({ type: 'delete', ref: d.ref });
+      }
+      for (let i = 0; i < ops.length; i += 450) {
         const batch = writeBatch(db);
-        docs.slice(i, i + 450).forEach(d => batch.update(d.ref, {
-          name: studentObj.name, className: studentObj.className,
-          section: studentObj.section || '', seat: studentObj.seat || '',
-          phone: studentObj.phone || ''
-        }));
+        ops.slice(i, i + 450).forEach(op => op.type === 'delete' ? batch.delete(op.ref) : batch.set(op.ref, op.data));
         await batch.commit();
       }
     };
@@ -1970,14 +2073,31 @@
 
     window.cloudSaveRecord = async function(recordObj) {
       if (!canControl) return;
-      const recId = recordObj.id || `${recordObj.date}_${recordObj.studentId}`;
+      const recId = `${recordObj.date}_${recordObj.studentId}`;
+      const snap = await getDocs(query(recordsCol, where('studentId', '==', recordObj.studentId)));
+      const duplicates = snap.docs.filter(d => d.data().date === recordObj.date && d.id !== recId);
+      for (let i = 0; i < duplicates.length; i += 450) {
+        const batch = writeBatch(db);
+        duplicates.slice(i, i + 450).forEach(d => batch.delete(d.ref));
+        await batch.commit();
+      }
       recordObj.id = recId;
       await setDoc(doc(recordsCol, recId), recordObj);
     };
 
-    window.cloudDeleteRecord = async function(recId) {
-      if (!canControl || !recId) return;
-      await deleteDoc(doc(recordsCol, recId));
+    window.cloudDeleteRecord = async function(studentId, date) {
+      if (!canControl || !studentId || !date) return;
+      const snap = await getDocs(query(recordsCol, where('studentId', '==', studentId)));
+      const refs = snap.docs.filter(d => d.data().date === date).map(d => d.ref);
+      // Also remove the canonical ID in case a legacy document omitted studentId.
+      refs.push(doc(recordsCol, `${date}_${studentId}`));
+      const unique = new Map(refs.map(ref => [ref.path, ref]));
+      const all = [...unique.values()];
+      for (let i = 0; i < all.length; i += 450) {
+        const batch = writeBatch(db);
+        all.slice(i, i + 450).forEach(ref => batch.delete(ref));
+        await batch.commit();
+      }
     };
 
     window.cloudDeleteRecordsBatch = async function(recIds) {
@@ -2021,14 +2141,27 @@
     };
 
     window.cloudRestoreAll = async function(payload) {
-      if (!canControl) return;
-      await setDoc(metaDoc, { schoolName: payload.schoolName, timeLate: payload.timeLate }, { merge: true });
+      if (!canControl) throw new Error('الجهاز غير مخوّل بالاستعادة السحابية');
+      const cleanStudents = Array.isArray(payload.students) ? payload.students : [];
+      const cleanRecords = dedupeAttendance(payload.records || []).map(r => ({
+        ...r, id: `${r.date}_${r.studentId}`
+      }));
+      const expectedStudentIds = new Set(cleanStudents.map(st => st.id));
+      const expectedRecordIds = new Set(cleanRecords.map(r => r.id));
+      const [oldStudents, oldRecords] = await Promise.all([getDocs(studentsCol), getDocs(recordsCol)]);
+      const staleRefs = [
+        ...oldStudents.docs.filter(d => !expectedStudentIds.has(d.id)).map(d => d.ref),
+        ...oldRecords.docs.filter(d => !expectedRecordIds.has(d.id)).map(d => d.ref)
+      ];
+      for (let i = 0; i < staleRefs.length; i += 450) {
+        const batch = writeBatch(db);
+        staleRefs.slice(i, i + 450).forEach(ref => batch.delete(ref));
+        await batch.commit();
+      }
+      await setDoc(metaDoc, { schoolName: payload.schoolName, timeLate: payload.timeLate, timeZone: payload.timeZone || 'Africa/Tripoli' }, { merge: true });
       const ops = [
-        ...(payload.students || []).map(st => ({ ref: doc(studentsCol, st.id), data: st })),
-        ...dedupeAttendance(payload.records || []).map(r => ({
-          ref: doc(recordsCol, r.id || `${r.date}_${r.studentId}`),
-          data: { ...r, id: r.id || `${r.date}_${r.studentId}` }
-        }))
+        ...cleanStudents.map(st => ({ ref: doc(studentsCol, st.id), data: st })),
+        ...cleanRecords.map(r => ({ ref: doc(recordsCol, r.id), data: r }))
       ];
       for (let i = 0; i < ops.length; i += 450) {
         const batch = writeBatch(db);
