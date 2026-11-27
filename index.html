@@ -406,6 +406,7 @@
       }
 
       body.print-monthly #monthly,
+      body.print-student-monthly #monthly,
       body.print-cards #cards {
         display: block !important;
       }
@@ -420,6 +421,29 @@
         display: grid !important;
         grid-template-columns: repeat(3, 1fr) !important;
         gap: 10px !important;
+      }
+
+      body.print-student-monthly #monthlyReport {
+        padding: 0 !important;
+      }
+
+      body.print-student-monthly .student-month-page {
+        page-break-after: always;
+        break-after: page;
+        page-break-inside: avoid;
+        break-inside: avoid;
+        padding: 8mm 5mm !important;
+        min-height: 250mm;
+      }
+
+      body.print-student-monthly .student-month-page:last-child {
+        page-break-after: auto;
+        break-after: auto;
+      }
+
+      body.print-student-monthly .student-month-page table {
+        width: 100%;
+        font-size: 11pt;
       }
 
       .student-card {
@@ -730,10 +754,22 @@
           </div>
           <div class="col-md-3" id="gradePickerWrap">
             <label class="form-label">اختيار الصف</label>
-            <select id="reportGrade" class="form-select"><option value="">كل الصفوف</option></select>
+            <select id="reportGrade" class="form-select" onchange="fillReportSections()"><option value="">كل الصفوف</option></select>
           </div>
           <div class="col-md-3">
             <button class="btn btn-primary w-100" onclick="generateMonthlyReport()"><i class="fa-solid fa-chart-pie"></i> عرض التقرير</button>
+          </div>
+        </div>
+        <div class="row g-3 align-items-end mt-1">
+          <div class="col-md-4">
+            <label class="form-label">الشعبة للكشف التفصيلي</label>
+            <select id="reportSection" class="form-select"><option value="">اختاري الصف أولاً</option></select>
+          </div>
+          <div class="col-md-5">
+            <div class="note py-2">ينشئ ملفاً واحداً للطباعة أو الحفظ PDF، وفيه صفحة مستقلة لكل طالب من الشعبة.</div>
+          </div>
+          <div class="col-md-3">
+            <button class="btn btn-success w-100" onclick="generateSectionStudentReport()"><i class="fa-solid fa-file-pdf"></i> كشف شهري لكل طلاب الشعبة</button>
           </div>
         </div>
         <hr class="ctrl-only">
@@ -1555,6 +1591,21 @@
       $('cardsClass').innerHTML = '<option value="">جميع الصفوف</option>' + grades.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('');
       if (grades.includes(oldReport)) $('reportGrade').value = oldReport;
       if (grades.includes(oldCards)) $('cardsClass').value = oldCards;
+      fillReportSections();
+    }
+
+    function fillReportSections() {
+      const grade = $('reportGrade')?.value || '';
+      const select = $('reportSection');
+      if (!select) return;
+      const previous = select.value;
+      if (!grade) {
+        select.innerHTML = '<option value="">اختاري الصف أولاً</option>';
+        return;
+      }
+      const sections = [...new Set(students.filter(st => st.className === grade).map(st => st.section || 'بدون شعبة'))].sort(sortArabic);
+      select.innerHTML = '<option value="">اختاري الشعبة...</option>' + sections.map(sec => `<option value="${esc(sec)}">${esc(sec)}</option>`).join('');
+      if (sections.includes(previous)) select.value = previous;
     }
 
     function toggleReportGrade() {
@@ -1656,6 +1707,55 @@
       });
 
       $('monthlyReport').innerHTML = html;
+    }
+
+    function generateSectionStudentReport() {
+      const month = $('reportMonth').value || today().slice(0, 7);
+      const grade = $('reportGrade').value;
+      const section = $('reportSection').value;
+      if (!grade) return alert('اختاري الصف الدراسي أولاً.');
+      if (!section) return alert('اختاري الشعبة أولاً.');
+
+      const [year, monthNumber] = month.split('-').map(Number);
+      const daysInMonth = new Date(year, monthNumber, 0).getDate();
+      const studentList = students
+        .filter(st => st.className === grade && (st.section || 'بدون شعبة') === section)
+        .sort((a, b) => sortArabic(a.name, b.name));
+      if (!studentList.length) {
+        $('monthlyReport').innerHTML = '<div class="empty">لا يوجد طلاب مسجلون في هذه الشعبة.</div>';
+        return;
+      }
+
+      const monthRecords = dedupeAttendance(records.filter(r => r.date?.startsWith(month)));
+      const byStudentDay = new Map();
+      monthRecords.forEach(r => byStudentDay.set(`${r.studentId}__${r.date}`, r));
+      const weekday = date => new Intl.DateTimeFormat('ar-LY', { weekday: 'long', timeZone: 'UTC' })
+        .format(new Date(`${date}T12:00:00Z`));
+
+      let html = '';
+      studentList.forEach((student, index) => {
+        const daily = [];
+        let present = 0, absent = 0, late = 0, unrecorded = 0;
+        for (let day = 1; day <= daysInMonth; day++) {
+          const date = `${month}-${String(day).padStart(2, '0')}`;
+          const rec = byStudentDay.get(`${student.id}__${date}`);
+          const status = rec?.status || 'لا يوجد تسجيل';
+          if (status === 'حاضر') present++;
+          else if (status === 'غائب') absent++;
+          else if (status === 'متأخر') late++;
+          else unrecorded++;
+          daily.push({ date, dayName: weekday(date), status });
+        }
+        const dailyRows = daily.map(item => {
+          const cls = item.status === 'حاضر' ? 'text-success fw-bold' : item.status === 'غائب' ? 'text-danger fw-bold' : item.status === 'متأخر' ? 'text-warning fw-bold' : 'text-muted';
+          return `<tr><td>${esc(item.date)}</td><td>${esc(item.dayName)}</td><td class="${cls}">${esc(item.status)}</td></tr>`;
+        }).join('');
+        html += `<article class="student-month-page">\n          <div class="text-center mb-3">\n            <h3 class="fw-bold">${esc(schoolName)}</h3>\n            <h4 class="fw-bold">كشف الحضور والغياب والتأخير الشهري</h4>\n            <div>الشهر: ${esc(month)} | الصف: ${esc(grade)} | الشعبة: ${esc(section)}</div>\n          </div>\n          <div class="d-flex justify-content-between flex-wrap gap-2 border rounded p-2 mb-3">\n            <strong>اسم الطالب: ${esc(student.name)}</strong>\n            <span>رقم المقعد: ${esc(student.seat || '-')}</span>\n            <span>رقم الطالب: ${esc(student.id)}</span>\n          </div>\n          <div class="table-responsive">\n            <table class="table table-bordered table-sm align-middle text-center">\n              <thead class="table-light"><tr><th style="width:15%">التاريخ</th><th style="width:25%">اليوم</th><th>الحالة</th></tr></thead>\n              <tbody>${dailyRows}</tbody>\n            </table>\n          </div>\n          <div class="row g-2 text-center mt-2">\n            <div class="col-3"><div class="border rounded p-2"><strong class="text-success d-block">${present}</strong><small>حضور</small></div></div>\n            <div class="col-3"><div class="border rounded p-2"><strong class="text-danger d-block">${absent}</strong><small>غياب</small></div></div>\n            <div class="col-3"><div class="border rounded p-2"><strong class="text-warning d-block">${late}</strong><small>تأخير</small></div></div>\n            <div class="col-3"><div class="border rounded p-2"><strong class="d-block">${unrecorded}</strong><small>بدون تسجيل</small></div></div>\n          </div>\n          <div class="text-muted small mt-3 text-center">صفحة ${index + 1} من ${studentList.length}</div>\n        </article>`;
+      });
+      $('monthlyReport').innerHTML = html;
+      document.body.classList.add('print-student-monthly');
+      window.print();
+      setTimeout(() => document.body.classList.remove('print-student-monthly'), 700);
     }
 
     function printMonthlyReport() {
