@@ -762,7 +762,9 @@
         </div>
         <div class="row g-3 align-items-end mt-1">
           <div class="col-md-4">
-            <label class="form-label">الشعبة للكشف التفصيلي</label>
+            <label class="form-label">الصف للكشف التفصيلي</label>
+            <select id="sectionGrade" class="form-select" onchange="fillReportSections()"><option value="">اختاري الصف...</option></select>
+            <label class="form-label mt-2">الشعبة</label>
             <select id="reportSection" class="form-select"><option value="">اختاري الصف أولاً</option></select>
           </div>
           <div class="col-md-5">
@@ -1587,15 +1589,19 @@
     function fillReportGrades() {
       let grades = [...new Set(students.map(s => s.className).filter(Boolean))].sort(sortGrades);
       let oldReport = $('reportGrade').value, oldCards = $('cardsClass').value;
-      $('reportGrade').innerHTML = '<option value="">اختاري الصف...</option>' + grades.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('');
-      $('cardsClass').innerHTML = '<option value="">جميع الصفوف</option>' + grades.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('');
+      let oldSectionGrade = $('sectionGrade')?.value || '';
+      const gradeOptions = grades.map(g => `<option value="${esc(g)}">${esc(g)}</option>`).join('');
+      $('reportGrade').innerHTML = '<option value="">اختاري الصف...</option>' + gradeOptions;
+      $('sectionGrade').innerHTML = '<option value="">اختاري الصف...</option>' + gradeOptions;
+      $('cardsClass').innerHTML = '<option value="">جميع الصفوف</option>' + gradeOptions;
       if (grades.includes(oldReport)) $('reportGrade').value = oldReport;
+      if (grades.includes(oldSectionGrade)) $('sectionGrade').value = oldSectionGrade;
       if (grades.includes(oldCards)) $('cardsClass').value = oldCards;
       fillReportSections();
     }
 
     function fillReportSections() {
-      const grade = $('reportGrade')?.value || '';
+      const grade = $('sectionGrade')?.value || '';
       const select = $('reportSection');
       if (!select) return;
       const previous = select.value;
@@ -1711,7 +1717,7 @@
 
     function generateSectionStudentReport() {
       const month = $('reportMonth').value || today().slice(0, 7);
-      const grade = $('reportGrade').value;
+      const grade = $('sectionGrade').value;
       const section = $('reportSection').value;
       if (!grade) return alert('اختاري الصف الدراسي أولاً.');
       if (!section) return alert('اختاري الشعبة أولاً.');
