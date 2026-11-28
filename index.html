@@ -2236,7 +2236,7 @@
     };
 
       window.cloudClearAll = async function() {
-      if (!canControl()) return;
+     
       const recordSnap = await getDocs(recordsCol);
       const refs = recordSnap.docs.map(d => d.ref);
       for (let i = 0; i < refs.length; i += 450) {
