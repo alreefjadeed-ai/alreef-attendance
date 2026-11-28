@@ -844,11 +844,12 @@
         <div id="approvedDevicesList" class="small text-muted">جاري تحميل قائمة الأجهزة...</div>
       </div>
 
-      <div class="cardx">
+        <div class="cardx">
         <h5 class="text-danger">إدارة البيانات والتهيئة</h5>
-        <p class="sub">حذف البيانات يمسح سجلات الطلاب والحضور. يُنصح بأخذ نسخة احتياطية أولاً.</p>
-        <button class="btn btn-outline-danger" onclick="clearData()"><i class="fa-solid fa-trash"></i> مسح جميع البيانات نهائياً</button>
+        <p class="sub">تتم مسح هذه البيانات خلال نهاية السنة (يُمسح سجل الحضور والغياب والتأخير فقط وتبقى بيانات الطلاب محفوظة). يُنصح بأخذ نسخة احتياطية أولاً.</p>
+        <button class="btn btn-outline-danger" onclick="clearData()"><i class="fa-solid fa-trash"></i> مسح سجلات الحضور والغياب والتأخير فقط</button>
       </div>
+
     </section>
   </main>
 
@@ -1857,19 +1858,19 @@
       alert(cloudSaved ? 'تم حفظ الإعدادات ومزامنتها بنجاح.' : 'حُفظت الإعدادات محلياً، لكن فشلت المزامنة السحابية.');
     }
 
-    async function clearData() {
-      if (!requireControl()) return;
-      if (!confirm('تأكيد مسح جميع الطلاب والسجلات نهائياً؟')) return;
-      if (typeof window.cloudClearAll !== 'function') { alert('خدمة السحابة غير جاهزة؛ لم يتم مسح البيانات.'); return; }
-      try { await window.cloudClearAll(); }
-      catch (err) { alert('تعذّر مسح البيانات من السحابة؛ لم يتم مسح النسخة المحلية. تحققي من الاتصال والصلاحيات.'); return; }
-      students = [];
-      records = [];
-      saveLocalCache();
-      renderStudents();
-      dashboard();
-      alert('تم مسح البيانات بنجاح.');
-    }
+  async function clearData() {
+  if (!requireControl()) return;
+  if (!confirm('تأكيد مسح سجلات الحضور والغياب والتأخير فقط؟ (ستبقى بيانات الطلاب محفوظة)')) return;
+  if (typeof window.cloudClearAll !== 'function') { alert('خدمة السحابة غير جاهزة؛ لم يتم مسح السجلات.'); return; }
+  try { await window.cloudClearAll(); }
+  catch (err) { alert('تعذّر مسح السجلات من السحابة؛ لم يتم مسح النسخة المحلية. تحققي من الاتصال والصلاحيات.'); return; }
+  records = [];
+  saveLocalCache();
+  renderStudents();
+  dashboard();
+  alert('تم مسح سجلات الحضور والغياب والتأخير بنجاح، وبقيت بيانات الطلاب محفوظة.');
+}
+
 
     function backupData() {
       let data = { schoolName, timeStartSetting, timeLateSetting, timeZone: schoolTimeZone, students, records, version: 2 };
@@ -2234,16 +2235,17 @@
       await setDoc(metaDoc, metaObj, { merge: true });
     };
 
-    window.cloudClearAll = async function() {
-      if (!canControl) return;
-      const [studentSnap, recordSnap] = await Promise.all([getDocs(studentsCol), getDocs(recordsCol)]);
-      const refs = [...studentSnap.docs, ...recordSnap.docs].map(d => d.ref);
+      window.cloudClearAll = async function() {
+      if (!canControl()) return;
+      const recordSnap = await getDocs(recordsCol);
+      const refs = recordSnap.docs.map(d => d.ref);
       for (let i = 0; i < refs.length; i += 450) {
         const batch = writeBatch(db);
         refs.slice(i, i + 450).forEach(ref => batch.delete(ref));
         await batch.commit();
       }
     };
+
 
     window.cloudRestoreAll = async function(payload) {
       if (!canControl) throw new Error('الجهاز غير مخوّل بالاستعادة السحابية');
